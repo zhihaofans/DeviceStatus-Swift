@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Xcode —— 用户级状态（每个人的 scheme 选择、断点、窗口位置都不一样，不进仓库）
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode —— 构建产物
+build/
+DerivedData/
+*.xccheckout
+*.xcscmblueprint
+
+# Swift Package Manager
+# 注意：这是 App 工程，Package.resolved 要提交进仓库以锁定依赖版本（库工程才忽略它）。
+.build/
+.swiftpm/
+
+# 本地验证用的 DerivedData（见 README）
+.dsbuild/
+
+# 测试与覆盖率
+*.xctestresults
+*.xcresult
