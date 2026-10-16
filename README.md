@@ -118,29 +118,48 @@ xcodebuild -scheme DeviceStatus \
 5. **版本号**：`MARKETING_VERSION` 与 `CURRENT_PROJECT_VERSION` 每次上传必须递增且唯一，
    建议接 `agvtool` 或 CI 自动 bump。
 
-## 已知问题
+## 平台限制与已知问题
 
-### 1. watchOS 能编译但装不上手表（未解决，阻塞上架）
+### 1. watchOS：单 target 只能做 watch-only（已解决并配置）
 
-`xcodebuild -destination 'platform=watchOS Simulator,...' test` 会失败，直接装也会被拒：
+原先装不上手表，报 `Missing WKCompanionAppBundleIdentifier key`。
+在手表模拟器上把两种修法都实测了一遍：
+
+| 方案 | 结果 |
+| --- | --- |
+| `WKWatchOnly = YES` | ✅ 安装成功、启动成功 |
+| `WKCompanionAppBundleIdentifier = me.zzhhoo.DeviceStatus`（自引用） | ❌ 被拒 |
+
+自引用被拒的原文：
 
 ```
-me.zzhhoo.DeviceStatus: Missing WKCompanionAppBundleIdentifier key
-in WatchKit 2.0 app's Info.plist
+This app's bundle identifier does not start with its parent app's bundle
+identifier followed by a dot ('.') character. ... this app indicates that
+its bundle identifier is "me.zzhhoo.DeviceStatus".
 ```
 
-单 target 多平台产出的 watchOS 产物被系统当作 **WatchKit 2.0 companion app**，
-必须声明它的 iPhone 宿主是谁。两条出路：
+**关键结论**：系统要求 companion 的 bundle id 必须是 `<父 id>.xxx`，而单 target 只能产出一个
+bundle id，**所以单 target 多平台做不出 companion watch app，只能做 watch-only**。
+这正是 Apple 报错里给的第二条出路。
 
-- **加键**：给 watchOS 侧补 `INFOPLIST_KEY_WKCompanionAppBundleIdentifier[sdk=watchos*]`，
-  指向 iOS 的 bundle id。改动最小，但"自己是自己的 companion"这种自引用是否被 App Store 接受，
-  没有把握，需要归档后验证。
-- **拆成独立 watchOS target**（推荐）：bundle id 用 `me.zzhhoo.DeviceStatus.watchkitapp`，
-  `TARGETED_DEVICE_FAMILY = 4`、`SKIP_INSTALL = YES`，再用
-  `INFOPLIST_KEY_WKCompanionAppBundleIdentifier = me.zzhhoo.DeviceStatus` 指回 iOS App，
-  并嵌入 iOS App。这是 Xcode 自己 watchOS 模板的做法，是确定可上架的形态。
+已按 SDK 限定配置（限定是为了不让这些键污染 iOS / macOS 的 Info.plist）：
 
-iOS 与 macOS 不受影响，均已实机验证通过。
+```
+"INFOPLIST_KEY_WKApplication[sdk=watchos*]" = YES;
+"INFOPLIST_KEY_WKApplication[sdk=watchsimulator*]" = YES;
+"INFOPLIST_KEY_WKWatchOnly[sdk=watchos*]" = YES;
+"INFOPLIST_KEY_WKWatchOnly[sdk=watchsimulator*]" = YES;
+```
+
+**产品层面的后果**：手表上是独立 App，只能看手表自己的信息，
+拿不到配对 iPhone 的电量、存储等。如果以后想做「在手表上看 iPhone 的状态」，
+必须拆成独立 watchOS target（bundle id 用 `me.zzhhoo.DeviceStatus.watchkitapp`、
+`TARGETED_DEVICE_FAMILY = 4`、`SKIP_INSTALL = YES`、
+`WKCompanionAppBundleIdentifier = me.zzhhoo.DeviceStatus`、再嵌进 iOS App），
+用 WatchConnectivity 同步数据。
+
+**上架待确认**：watch-only 的 watchOS 产物与 iOS / macOS 共用同一个 bundle id，
+归档上传时需要确认 App Store Connect 接受这种「一个 app 记录、多平台产物」的提交方式。
 
 ### 2. Swift 6 默认 MainActor 隔离 + 回调式 API = 运行时崩溃
 
