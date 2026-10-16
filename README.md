@@ -20,9 +20,15 @@ DeviceStatus.xcodeproj
   xcshareddata/xcschemes/DeviceStatus.xcscheme   共享 scheme（CI 与命令行归档依赖它）
 DeviceStatus/
   DeviceStatusApp.swift
-  ContentView.swift
+  ContentView.swift                              主界面：分组列表 + 搜索 + 点击复制 + 下拉刷新
+  Model/DeviceInfo.swift                         分组 / 条目数据模型
+  Service/DeviceInfoProvider.swift               设备信息采集
+  Service/SystemClipboard.swift                  剪贴板薄封装（watchOS 上没有剪贴板）
   PrivacyInfo.xcprivacy                          隐私清单（Required Reason API）
   Assets.xcassets/AppIcon.appiconset/            iOS + macOS + watchOS 图标（当前为占位图）
+DeviceStatusTests/
+  SwiftUtilsIntegrationTests.swift               验证 SwiftUtils 在三个平台的集成行为
+  DeviceInfoProviderTests.swift                  验证采集层输出一定可展示
 Scripts/
   generate-appicons.py                           重新生成占位图标
 ```
@@ -30,6 +36,23 @@ Scripts/
 > 工程使用 Xcode 16+ 的**文件夹同步组**（`PBXFileSystemSynchronizedRootGroup`）：
 > 往 `DeviceStatus/` 里新增 `.swift`、`.xcprivacy`、asset catalog 等文件会自动进入 target，
 > 不需要手改 `project.pbxproj`。新增 **target** 仍然要改工程文件。
+
+## 功能
+
+| 功能 | 说明 |
+| --- | --- |
+| 系统信息 | 系统版本、`kern.osversion` 构建号、平台、开机时长、语言、地区、时区 |
+| 硬件信息 | 设备名称、设备型号、CPU 核心、物理内存 |
+| 存储 | 总容量 / 已用 / 可用 / 使用率（`URL.volume*CapacityKey`） |
+| 电池 | 电量、充电状态（走 `DeviceUtil`，读前先开电池监控） |
+| 屏幕 | 亮度、缩放、深色模式 |
+| 网络 | 连接类型，异步经 `NetworkUtil` 取得，不阻塞其它分组 |
+| 应用 | 版本、构建号、Bundle ID、最低系统 |
+| 搜索 | 按标题或值过滤，命中为空的分组整组隐藏 |
+| 复制 | 点条目复制单条；工具栏按钮复制**当前可见**内容（搜索后只复制命中项） |
+
+> 存储与开机时长分别命中 `NSPrivacyAccessedAPICategoryDiskSpace` 与
+> `NSPrivacyAccessedAPICategorySystemBootTime`，隐私清单里已经声明。
 
 ## 构建
 
@@ -94,6 +117,51 @@ xcodebuild -scheme DeviceStatus \
    面向国内用户建议补 `zh-Hans` 的 `InfoPlist.strings`（可把显示名设成中文）与 String Catalog。
 5. **版本号**：`MARKETING_VERSION` 与 `CURRENT_PROJECT_VERSION` 每次上传必须递增且唯一，
    建议接 `agvtool` 或 CI 自动 bump。
+
+## 已知问题
+
+### 1. watchOS 能编译但装不上手表（未解决，阻塞上架）
+
+`xcodebuild -destination 'platform=watchOS Simulator,...' test` 会失败，直接装也会被拒：
+
+```
+me.zzhhoo.DeviceStatus: Missing WKCompanionAppBundleIdentifier key
+in WatchKit 2.0 app's Info.plist
+```
+
+单 target 多平台产出的 watchOS 产物被系统当作 **WatchKit 2.0 companion app**，
+必须声明它的 iPhone 宿主是谁。两条出路：
+
+- **加键**：给 watchOS 侧补 `INFOPLIST_KEY_WKCompanionAppBundleIdentifier[sdk=watchos*]`，
+  指向 iOS 的 bundle id。改动最小，但"自己是自己的 companion"这种自引用是否被 App Store 接受，
+  没有把握，需要归档后验证。
+- **拆成独立 watchOS target**（推荐）：bundle id 用 `me.zzhhoo.DeviceStatus.watchkitapp`，
+  `TARGETED_DEVICE_FAMILY = 4`、`SKIP_INSTALL = YES`，再用
+  `INFOPLIST_KEY_WKCompanionAppBundleIdentifier = me.zzhhoo.DeviceStatus` 指回 iOS App，
+  并嵌入 iOS App。这是 Xcode 自己 watchOS 模板的做法，是确定可上架的形态。
+
+iOS 与 macOS 不受影响，均已实机验证通过。
+
+### 2. Swift 6 默认 MainActor 隔离 + 回调式 API = 运行时崩溃
+
+工程开了 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`。凡是把闭包传给
+**在后台队列回调**的 API，闭包会隐式继承主线程隔离，然后在 Swift 6 运行时的
+隔离检查处直接 trap：
+
+```
+dispatch_assert_queue_fail
+  ← _swift_task_checkIsolatedSwift
+  ← closure #1 in DeviceInfoProvider.networkTypeLabel()
+  ← NetworkUtil.swift:46        (com.apple.root.background-qos)
+```
+
+**这是运行时崩溃，不是编译错误**，编译器不会提醒。当前绕法是把这个函数标成
+`nonisolated`（见 `DeviceInfoProvider.networkTypeLabel()` 的注释）。
+
+`NetworkUtil.getNetworkType(callback:fail:)`、`HttpUtil`、`AuthUtil` 这类回调 API
+都有同样的风险。**根治在库这边**：把回调参数声明成 `@escaping @Sendable`
+（例如 `callback: @escaping @Sendable (NetworkType?) -> Void`），
+调用方就不会再隐式继承 actor 隔离，同时也把"回调在哪个队列"变成类型上可见的约定。
 
 ## 已知无害警告
 
