@@ -96,11 +96,14 @@ struct ContentView: View {
             guard SystemClipboard.isSupported else { return }
             copy(item)
         }
+        // watchOS 不挂长按菜单：手表上没有剪贴板，菜单里本来就放不出按钮；
+        // 而 `contextMenu(menuItems:)` 从 watchOS 7 起整体 deprecated，SDK 里
+        // 也没有非 deprecated 的替代重载（带 preview 的那个在 watchOS 上 unavailable）。
+        #if !os(watchOS)
         .contextMenu {
-            if SystemClipboard.isSupported {
-                Button("复制") { copy(item) }
-            }
+            Button("复制") { copy(item) }
         }
+        #endif
     }
 
     // MARK: - 动作

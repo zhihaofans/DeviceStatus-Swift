@@ -184,12 +184,14 @@ enum DeviceInfoProvider {
             return "未知"
         }
 
-        var buffer = [CChar](repeating: 0, count: size)
+        var buffer = [UInt8](repeating: 0, count: size)
         guard sysctlbyname("kern.osversion", &buffer, &size, nil, 0) == 0 else {
             return "未知"
         }
 
-        let build = String(cString: buffer)
+        // sysctl 给的是以 NUL 结尾的 C 字符串：先截掉 NUL，再按 UTF-8 解码。
+        // 不走 `String(cString:)`——它对 `[CChar]` 已在新 SDK 标记 deprecated。
+        let build = String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
         return build.isEmpty ? "未知" : build
     }
 
