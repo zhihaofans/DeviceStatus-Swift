@@ -50,6 +50,7 @@ Scripts/
 | 应用 | 版本、构建号、Bundle ID、最低系统 |
 | 搜索 | 按标题或值过滤，命中为空的分组整组隐藏 |
 | 复制 | 点条目复制单条；工具栏按钮复制**当前可见**内容（搜索后只复制命中项） |
+| 外观刷新 | 切换白天/深夜时自动重采一遍本地信息，「深色模式」一行立即更新（不重取网络，它与外观无关） |
 
 > 存储与开机时长分别命中 `NSPrivacyAccessedAPICategoryDiskSpace` 与
 > `NSPrivacyAccessedAPICategorySystemBootTime`，隐私清单里已经声明。
@@ -181,6 +182,45 @@ dispatch_assert_queue_fail
 都有同样的风险。**根治在库这边**：把回调参数声明成 `@escaping @Sendable`
 （例如 `callback: @escaping @Sendable (NetworkType?) -> Void`），
 调用方就不会再隐式继承 actor 隔离，同时也把"回调在哪个队列"变成类型上可见的约定。
+
+### 3. `AppUtil.isDarkColorMode()` 的 macOS 分支（已修复，但仍无测试）
+
+0.0.24 及以前的实现：
+
+```swift
+public func isDarkColorMode() -> Bool {
+#if os(watchOS)
+    return true       // watchOS 界面恒为深色，符合实际
+#elseif os(macOS)
+    return false      // ← 硬编码，深色模式下也返回 false
+#else
+    return UITraitCollection.current.userInterfaceStyle == .dark
+#endif
+}
+```
+
+- **macOS：确认是缺陷**（源码无分支，永远返回 false）。
+- **iOS：实测是对的**。模拟器切成深色后跑临时探针，返回 `true`。
+- **watchOS：恒为 true，符合实际**。
+
+SwiftUtils **0.0.25 已修复**（`df31ffe`）：
+
+```swift
+#elseif os(macOS)
+    return NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+```
+
+所以本工程「深色模式」一行已改回直接调用 `AppUtil().isDarkColorMode()`，
+视图侧只用 `\.colorScheme` 当刷新触发器——外观一变就重采一遍，两者职责分开。
+
+**注意两点**：
+
+1. `isDarkColorMode()` 在 SwiftUtils 仓库里**没有任何单元测试**
+   （`git grep isDarkColorMode 0.0.25 -- Tests/` 为空）。App 这边只能钉住
+   「watchOS 恒为「是」」这个跨平台契约，其余平台的取值依赖运行环境，测不了固定结果。
+2. 新实现用了 `NSApp?`，可选链意味着 **`NSApp` 为 nil 时（非 GUI 进程，比如 SwiftPM 测试进程）
+   会静默返回 `false`**，看起来仍像"永远是浅色"。如果要让它在任何上下文都可靠，
+   可以退回 `NSAppearance.currentDrawing()` 或加一个明确的失败信号。
 
 ## 已知无害警告
 

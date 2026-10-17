@@ -15,6 +15,12 @@ enum DeviceInfoProvider {
     // MARK: - 采集
 
     /// 同步就能拿到的分组。网络类型是异步的，见 `loadNetworkGroup()`。
+    ///
+    /// 深色模式判定走 `AppUtil().isDarkColorMode()`。SwiftUtils 0.0.24 及以前 macOS 分支
+    /// 硬编码返回 false，当时这里临时改用了 SwiftUI 的 `colorScheme`；
+    /// 0.0.25 修好之后（`NSApp?.effectiveAppearance...`）就改回走库，
+    /// 否则这个集成工程就测不到那个 API 了。
+    /// 视图侧仍然用 `\.colorScheme` 当刷新触发器——外观一变就重采一遍。
     static func snapshot(displayScale: CGFloat) -> [DeviceInfoGroup] {
         [
             systemGroup(),
@@ -137,14 +143,13 @@ enum DeviceInfoProvider {
     }
 
     private static func screenGroup(displayScale: CGFloat) -> DeviceInfoGroup {
-        let app = AppUtil()
-        return DeviceInfoGroup(
+        DeviceInfoGroup(
             title: "屏幕",
             symbol: "display",
             items: [
                 DeviceInfoItem(title: "屏幕亮度", value: brightnessText(DeviceUtil().getScreenBrightness())),
                 DeviceInfoItem(title: "屏幕缩放", value: "\(Int(displayScale))x"),
-                DeviceInfoItem(title: "深色模式", value: app.isDarkColorMode() ? "是" : "否"),
+                DeviceInfoItem(title: "深色模式", value: AppUtil().isDarkColorMode() ? "是" : "否"),
             ]
         )
     }

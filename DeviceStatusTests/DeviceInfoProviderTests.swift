@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import SwiftUtils
 import Testing
 
 @testable import DeviceStatus
@@ -15,9 +16,14 @@ import Testing
 @Suite("设备信息采集")
 struct DeviceInfoProviderTests {
 
+    /// 大多数用例只关心「采集结果是否可展示」，屏幕缩放用个固定值即可。
+    private func makeSnapshot(displayScale: CGFloat = 2) -> [DeviceInfoGroup] {
+        DeviceInfoProvider.snapshot(displayScale: displayScale)
+    }
+
     @Test("分组齐全、每个条目都有标题和值")
     func snapshotIsWellFormed() {
-        let groups = DeviceInfoProvider.snapshot(displayScale: 2)
+        let groups = makeSnapshot()
 
         #expect(!groups.isEmpty)
         for group in groups {
@@ -34,7 +40,7 @@ struct DeviceInfoProviderTests {
 
     @Test("包含预期的分组")
     func snapshotHasExpectedGroups() {
-        let titles = DeviceInfoProvider.snapshot(displayScale: 2).map(\.title)
+        let titles = makeSnapshot().map(\.title)
         for expected in ["系统", "硬件", "存储", "电池", "屏幕", "应用"] {
             #expect(titles.contains(expected), "缺少分组「\(expected)」")
         }
@@ -42,7 +48,7 @@ struct DeviceInfoProviderTests {
 
     @Test("分组内条目标题唯一：id 由标题派生，重复会让列表身份错乱")
     func itemTitlesAreUniqueWithinEachGroup() {
-        for group in DeviceInfoProvider.snapshot(displayScale: 2) {
+        for group in makeSnapshot() {
             let titles = group.items.map(\.title)
             #expect(Set(titles).count == titles.count, "分组「\(group.title)」有重复标题")
         }
@@ -50,10 +56,30 @@ struct DeviceInfoProviderTests {
 
     @Test("屏幕缩放来自入参，原样反映到条目上")
     func displayScaleIsReflected() {
-        let groups = DeviceInfoProvider.snapshot(displayScale: 3)
+        let groups = makeSnapshot(displayScale: 3)
         let group = try? #require(groups.first { $0.title == "屏幕" })
         let item = group?.items.first { $0.title == "屏幕缩放" }
         #expect(item?.value == "3x")
+    }
+
+    /// 「深色模式」这一行现在直接取 `AppUtil().isDarkColorMode()`，值依赖运行环境，
+    /// 没法断言固定结果。这里只钉住库的跨平台契约：watchOS 恒为深色。
+    /// 其余平台的取值正确性由人工切换外观验证（见 README）。
+    @Test("深色模式条目存在，且 watchOS 上恒为「是」")
+    func darkModeItemFollowsLibraryContract() {
+        let item = makeSnapshot()
+            .first { $0.title == "屏幕" }?
+            .items.first { $0.title == "深色模式" }
+
+        let value = try? #require(item?.value)
+        #if os(watchOS)
+        #expect(value == "是", "watchOS 界面恒为深色，AppUtil 应返回 true")
+        #else
+        #expect(value == "是" || value == "否", "取值应是「是」或「否」，实际为 \(value ?? "nil")")
+        #endif
+
+        // 顺带确认这一行确实来自库，而不是被别的实现悄悄替换
+        #expect(value == (AppUtil().isDarkColorMode() ? "是" : "否"))
     }
 
     @Test("网络分组异步返回连接类型")

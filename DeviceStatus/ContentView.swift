@@ -9,8 +9,9 @@ import SwiftUI
 import SwiftUtils
 
 struct ContentView: View {
-    /// 屏幕缩放要问 SwiftUI 环境，所以从视图传进采集层。
+    /// 屏幕缩放和配色方案都要问 SwiftUI 环境，所以从视图传进采集层。
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var groups: [DeviceInfoGroup] = []
     @State private var networkGroup: DeviceInfoGroup?
@@ -67,6 +68,11 @@ struct ContentView: View {
                 }
             }
             .task { await reload() }
+            // 切换白天/深夜后「深色模式」这一行会变旧，顺便把整份信息重采一次。
+            // 只重采本地就能拿到的那部分：网络类型跟外观无关，不必再走一次 NWPathMonitor。
+            .onChange(of: colorScheme) {
+                refreshLocalGroups()
+            }
         }
     }
 
@@ -99,8 +105,13 @@ struct ContentView: View {
 
     // MARK: - 动作
 
-    private func reload() async {
+    /// 重采本地就能拿到的分组（系统 / 硬件 / 存储 / 电池 / 屏幕 / 应用）。
+    private func refreshLocalGroups() {
         groups = DeviceInfoProvider.snapshot(displayScale: displayScale)
+    }
+
+    private func reload() async {
+        refreshLocalGroups()
         networkGroup = await DeviceInfoProvider.loadNetworkGroup()
         hasLoaded = true
     }
